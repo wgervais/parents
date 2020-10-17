@@ -1,0 +1,281 @@
+---
+title: "Interfaith Parents and Atheism"
+output:
+   #pdf_document: default
+   rmarkdown::html_document:
+    toc: true
+    toc_float: true
+    keep_md: true
+    theme: readable
+  # word_document: default
+#always_allow_html: true
+    
+bibliography: BAMLabLib.bib
+csl: apa.csl
+header-includes:
+   #- \usepackage{draftwatermark}
+   #- \SetWatermarkText{PREPRINT}
+   #- \SetWatermarkLightness{.97}
+   - \usepackage{setspace}
+   - \usepackage{lineno}
+   #- \linenumbers
+   - \usepackage{fancyhdr}
+   - \pagestyle{fancy}
+   - \fancyhead[R]{Atheists & Apostates}
+   - \usepackage{footnote}
+   - \renewcommand{\thefootnote}{\roman{footnote}}
+# indent: true
+# toc: true
+author:
+   - Will M. Gervais ^[Centre for Culture and Evolution, Brunel University London, Will.Gervais@brunel.ac.uk]
+   
+
+  
+date: "`r format(Sys.time(), '%B %Y')`"
+---
+<style type="text/css">
+
+body, td {
+   font-size: 16px;
+   font-family: Garamond;
+}
+/* Headers */
+h1,h2,h3,h4,h5,h6{
+  font-family: Garamond;
+}
+code.r{
+  font-size: 12px;
+}
+pre {
+  font-size: 12px
+}
+</style>
+
+```{r setup, echo = F, include = F}
+# libraries ====
+
+library(tidyverse)
+library(rethinking)
+library(tidybayes)
+library(haven)
+
+# functions ====
+dig <- 2
+
+
+bigger <- function(first, second, digits) {
+  pr.big <- ifelse(first > second, 1, 0) %>% mean %>% round(digits = dig)
+  pr.big[pr.big == 1] <- '> 0.99'
+  pr.big[pr.big == 0] <- '< 0.01'
+  return(pr.big)
+}
+
+
+biggerZero <- function(input, digits) {
+  pr.big <- ifelse(input > 0, 1, 0) %>% mean %>% round(digits = dig)
+  return(pr.big)
+}
+
+
+
+# a couple of quick functions for pulling HPDIs
+
+
+low <- function(x){
+  v <- HPDI(x, prob=.89)[1]
+  return(v)
+}
+
+
+high <- function(x){
+  v <- HPDI(x, prob=.89)[2]
+  return(v)
+}
+
+
+printB <- function(input) {
+  p <- input %>% mean %>% round(digits = dig)
+  l <- input %>% low %>% round(digits = dig)
+  h <- input %>% high %>% round(digits = dig)
+  paste0(p, ", [", l, ", ", h, "]")
+}
+
+
+col1 <- "darkviolet"
+col2 <- "darkturquoise"
+col3 <- "darkslategrey"
+col4 <- "deeppink"
+col5 <- "#fed503" 
+col6 <- "#0065a5"
+# col7 <- "orange3"
+
+text <- "black"
+border <- "transparent"
+grids <- "lightgrey"
+backgrounds <- "transparent"
+fontfam <- "Times"
+effect <- "black"
+angle <- 360-29
+hjust <- 0
+vjust <- 1
+
+themeME <-  theme_bw() +
+  theme(text = element_text(family=fontfam),
+        #legend.position = "none",
+        axis.text = element_text(size = 16, color = text),
+        axis.title = element_text(size = 20, color = text),
+        axis.text.x = element_text(angle= angle, vjust=vjust, hjust=hjust, color = text),
+        panel.grid.major.x = element_blank() ,
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        panel.grid.major.y = element_line(color=grids),
+        panel.background = element_rect(fill = backgrounds),
+        plot.background = element_rect(color = border, fill = backgrounds))  
+
+```
+
+
+```{r wave 1 data, echo=F}
+full <- read.csv("baylor-w1.csv")
+
+parent <- full %>%
+  select(
+    fatherRel = Q31A,
+    motherRel = Q31B,
+    god = Q21,
+    gender = Q51,
+    rel12 = Q32,
+    attend12 = Q33,
+    region = REGION,
+    income = I_INCOME,
+    educ = I_EDUC,
+    age = I_AGE,
+    politics = I_POLITICS,
+    attend = Q5,
+    pray = Q16) %>%
+  drop_na() %>%
+  mutate(fatherNone = ifelse(fatherRel == 7, 1, 0),
+    motherNone = ifelse(motherRel == 7, 1, 0),
+    parentDiff = ifelse(fatherRel == motherRel, 0, 1),
+    female = ifelse(gender == 2, 1, 0),
+    atheist = ifelse(god == 5, 1, 0),
+    nonbeliever = ifelse(god == 5 | god == 6, 1, 0 ),
+    god_no_op = ifelse(god == 6, 1, 0),
+    parentNones = fatherNone + motherNone,
+    incomeZ = scale(income)[,],
+    educZ = scale(educ)[,],
+    ageZ = scale(age)[,],
+    rel12Z = scale(rel12)[,],
+    attend12Z = scale(attend12)[,],
+    femC = scale(female, scale=F, center=T)[,],
+    believer = ifelse(god != 5 & god !=6, 1, 0),
+    parentDiffC = scale(parentDiff, center=T, scale=F)[,],
+    parentNonesC = scale(parentNones, center=T, scale=F)[,],
+    motherNoneC = scale(motherNone, center=T, scale=F)[,],
+    fatherNoneC = scale(fatherNone, center=T, scale=F)[,],
+    god2 = factor(god),
+    god3 = recode(god2, "5" = "6", "6" = "5"),
+    god3 = as.numeric(god3),
+    godBelief = 6-god3,
+    godZ = scale(godBelief)[,],
+    attendZ = scale(attend)[,],
+    prayZ = scale(pray)[,]
+  ) %>%
+  data.frame
+
+
+```
+
+
+```{r mixed model interfaith, echo=F, include=F, cache = T}
+# checked with random slopes. checked with interaction with NONE papernts
+# this model was best. interaction didn't add much, slopes didn't vary
+
+
+parent.l <- parent %>%
+  pivot_longer(godZ:prayZ, names_to = "measure", values_to = "relScore") %>%
+  mutate(measure = factor(measure)) %>%
+  data.frame
+
+lin.m2.ni <- map2stan(
+  alist(
+    relScore ~ dnorm(mu, sigma),
+    mu <- a_measure[measure] + b_diff*parentDiffC + b_nones*parentNonesC  +
+      b_fem*femC +
+      b_age*ageZ +
+      b_educ*educZ +
+      b_inc*incomeZ,
+    c(a, b_diff, b_nones, b_fem, b_age, b_educ, b_inc) ~ dnorm(0,1),
+    a_measure[measure] ~ dnorm(0,1),
+    sigma ~ dcauchy(0,1)
+  ), data=parent.l, iter=24000, 
+  warmup=2000, WAIC = T, chains=1, cores = 1,
+  control=list(adapt_delta=0.85)
+)
+
+
+diff.p.ni <- data.frame(extract.samples(lin.m2.ni))
+
+```
+
+```{r binary model1, echo=F, include=F, cache = T}
+# checked models with and without interaction, better without
+rentals.bin2 <- map2stan(
+  alist(
+    atheist ~ dbinom(1, p),
+    logit(p) <- a + b_mom*motherNone + b_dad*fatherNone +
+      b_fem*femC +
+      b_age*ageZ +
+      b_educ*educZ +
+      b_inc*incomeZ,
+    c(a, b_mom, b_dad, b_fem, b_age, b_educ, b_inc) ~ dnorm(0,1)
+  ), data=parent, iter=24000, 
+  warmup=2000, WAIC = F, chains=1, cores = 1,
+  control=list(adapt_delta=0.85)
+)
+rent.p <- data.frame(extract.samples(rentals.bin2))
+
+```
+
+```{r christian only models, echo=F, include = F, cache = T}
+
+parentl.lx <- parent.l %>%
+  filter(fatherRel == 1 | fatherRel ==2,
+         motherRel == 1 | motherRel == 2)
+
+xian.m <- map2stan(
+  alist(
+    relScore ~ dnorm(mu, sigma),
+    mu <- a_measure[measure] + b_diff*parentDiffC +
+      b_fem*femC +
+      b_age*ageZ +
+      b_educ*educZ +
+      b_inc*incomeZ,
+    c(a, b_diff, b_fem, b_age, b_educ, b_inc) ~ dnorm(0,1),
+    a_measure[measure] ~ dnorm(0,1),
+    sigma ~ dcauchy(0,1)
+  ), data=parent.l, iter=24000, 
+  warmup=2000, WAIC = T, chains=1, cores = 1,
+  control=list(adapt_delta=0.85)
+)
+xian.m.p <- data.frame(extract.samples(xian.m))
+
+
+
+xian.bin <- map2stan(
+  alist(
+    atheist ~ dbinom(1, p),
+    logit(p) <- a + b_diff*parentDiffC +
+      b_fem*femC +
+      b_age*ageZ +
+      b_educ*educZ +
+      b_inc*incomeZ,
+    c(a, b_diff, b_fem, b_age, b_educ, b_inc) ~ dnorm(0,1)
+  ), data=parent.l, iter=24000, 
+  warmup=2000, WAIC = T, chains=1, cores = 1,
+  control=list(adapt_delta=0.85)
+)
+
+xian.bin.p <- data.frame(extract.samples(xian.bin))
+```
+ 

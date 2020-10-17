@@ -367,5 +367,25 @@ xian.m <- map2stan(
 )
 
 plot(xian.m)
-precis(xian.m)
+precis(xian.m) # amazing, even just among Christians you get less religiosty if mixed
 
+
+
+
+
+xian.bin <- map2stan(
+  alist(
+    atheist ~ dbinom(1, p),
+    logit(p) <- a + b_diff*parentDiffC +
+      b_fem*femC +
+      b_age*ageZ +
+      b_educ*educZ +
+      b_inc*incomeZ,
+    c(a, b_diff, b_fem, b_age, b_educ, b_inc) ~ dnorm(0,1)
+  ), data=parent.l, iter=4000, 
+  warmup=2000, WAIC = T, chains=2, cores = 2,
+  control=list(adapt_delta=0.85)
+)
+ 
+plot(xian.bin)
+precis(xian.bin)
