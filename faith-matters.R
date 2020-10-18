@@ -188,7 +188,7 @@ fms.mr <- map2stan(
 plot(fms.mr)
 precis(fms.mr, depth=2)
 
-compare(fms.m, fms.mr)
+compare(fms.m, fms.mr) # similar, probably good enough to run the random intercept. too mjuch wonky in the chains
 
 
 fms.mr.p <- data.frame(extract.samples(fms.mr))
