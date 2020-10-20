@@ -122,7 +122,8 @@ fms <- fms_full %>%
          ageZ = scale(age)[,],
          ethnicity = factor(ethnicity),
          parentDiff = ifelse(parentSame == 0, 1, 0),
-         parentDiffC = scale(parentDiff, scale=F, center=T)[,]
+         parentDiffC = scale(parentDiff, scale=F, center=T)[,],
+         atheist = ifelse(god == 0,1, 0)
          
          )
          
@@ -163,6 +164,8 @@ fms.m <- map2stan(
 plot(fms.m)
 precis(fms.m)
 
+fms.p <- data.frame(extract.samples(fms.m))
+
 
 
 # random slope
@@ -192,3 +195,68 @@ compare(fms.m, fms.mr) # similar, probably good enough to run the random interce
 
 
 fms.mr.p <- data.frame(extract.samples(fms.mr))
+
+
+
+Baylor <- diff.p.ni$b_diff
+Faith <- fms.p$b_diff
+
+combined <- data.frame(Baylor, Faith)
+summary(combined)
+
+combined.l <- combined %>%
+  pivot_longer(Baylor:Faith, names_to = "Sample", values_to = "beta") %>%
+  mutate(Sample = factor(Sample, levels = c("Faith", "Baylor"), labels = c("Faith\nMatters\nSurvey", "Baylor\nReligion\nSurvey"))) %>%
+  data.frame
+
+
+ggplot(combined.l, aes(x=beta, y=Sample, fill = Sample)) +
+  geom_vline(xintercept = 0) +
+  geom_halfeyeh(adjust = 1.8, scale = 1.4, alpha = .6) +
+  scale_fill_manual(values = c(col1, col2)) +
+  labs(x="Mixed Faith Parents\nBeta", y = NULL) +
+  theme_bw() +
+  theme(text = element_text(family=fontfam),
+        legend.position = "none",
+        axis.text = element_text(size = 16, color = text),
+        axis.title = element_text(size = 20, color = text),
+        #axis.text.x = element_text(angle=29, vjust=1, hjust=1, color = text),
+        panel.grid.major.x = element_blank() ,
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        #plot.margin =unit(c(1,1,1,1.2),"cm"),
+        panel.grid.major.y = element_line(color=grids),
+        panel.background = element_rect(fill = backgrounds),
+        plot.background = element_rect(color = border, fill = backgrounds)) 
+
+
+
+# atheism ====
+
+fms.b <- fms%>%
+  select(atheist,
+         parentDiffC,
+         femC,
+         ageZ,
+         educZ,
+         incomeZ
+         ) %>%
+  drop_na() %>%
+  data.frame
+
+fms.bin <- map2stan(
+  alist(
+    atheist ~ dbinom(1, p),
+    logit(p) <- a + b_diff*parentDiffC   +
+      b_fem*femC +
+      b_age*ageZ +
+      b_educ*educZ +
+      b_inc*incomeZ,
+    c(a, b_diff, b_fem, b_age, b_educ, b_inc) ~ dnorm(0,1)
+  ), data=fms.b, iter=4000, 
+  warmup=2000, WAIC = T, chains=2, cores = 2,
+  control=list(adapt_delta=0.85)
+)
+
+plot(fms.bin)
+precis(fms.bin)
