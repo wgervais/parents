@@ -1,5 +1,5 @@
 ---
-title: "Interfaith Parents and Atheism"
+title: "Mixed-Faith Parents and Atheism"
 output:
    #pdf_document: default
    rmarkdown::html_document:
@@ -26,8 +26,7 @@ header-includes:
    - \renewcommand{\thefootnote}{\roman{footnote}}
 # indent: true
 # toc: true
-author:
-   - Will M. Gervais ^[Centre for Culture and Evolution, Brunel University London, Will.Gervais@brunel.ac.uk]
+author: false
    
 
   
@@ -134,6 +133,21 @@ themeME <-  theme_bw() +
 
 ```
 
+# Big Question
+
+Do kids of mixed-faith parents end up less religious thann kids of same-faith parents?
+
+## Theory
+
+Per a lot of cultural evolutionary theory, it's super plausible that kids of mixed-faith parents might end up less religious. People follow a bunch of different social learning cues [@rendellCognitiveCultureTheoretical2011]. Put them together, and the transmission of religious belief probably requires some crucial cultural inputs [@banerjeeWouldTarzanBelieve2013; @gervaisCulturalTransmissionFaith2011]. Credibility enhancing displays [@henrichEvolutionCostlyDisplays2009] are super important for transmitting belief [@gervaisLearnedFaithInfluences2015; @lanmanReligiousActionsSpeak2017], and a lack of religious CREDs is a primary predictor of atheism and secularism [@willardTestingTheoriesSecularization2017; @gervaisOriginsReligiousDisbeliefinpress].
+
+
+Mixed faith parents present an interesting and strong test case. Here, in the strongest case, we have kids getting cues from both parents to believe in a God...but they get slightly differenrt cues about which God to believe in. Our cultural evolution-informed account predicts lower religiosity and an uptick of atheism. Other accounts -- for example a strong version of the byproduct or naturalness of religion approach from evolutionary psychology and cognitive science of religion [@barrettWhyWouldAnyone2004; @boyerBeingHumanReligion2008; @mccauleyNaturalnessReligionUnnaturalness2000] -- don't easily make such a prediction.
+
+I found 3 different archival datasets that can test this hypothesis.
+
+
+# Baylor Religion Survey, Wave I
 
 ```{r wave 1 data, echo=F}
 full <- read.csv("baylor-w1.csv")
@@ -186,8 +200,44 @@ parent <- full %>%
 
 ```
 
+The Baylor Religion Survey ([LINK HERE](https://thearda.com/Archive/Files/Descriptions/BRS2005.asp)) has measures of individual religiosity, and questions about parental religious affiliation. After wrangling, there were `r nrow(parent)` respondents.
 
-```{r mixed model interfaith, echo=F, include=F, cache = T}
+## Measures
+
+### Outcome Measure
+
+I grabbed measures of self-rated belief in God, prayer frequency, and religious attendance to make a religiosity composite. Can also code atheism by people who respond "I don't believe in anything beyond the physical world" when asked their belief about God. 
+
+### Parental Religion
+
+It asks separately about religious affiliation of mom and dad. I just coded whether mom and dad match. The VAST majority of mixed faith parents are examples where, for instance, mom is Catholic and dad is Protestant. This is awesome...it's the strongest possible test of our idea.
+
+### Other covariates
+
+I also grabbed the usual suspects: 
+
+- gender
+- age
+- income
+- education
+- politics
+
+
+## The Models
+
+First off, I did a Bayesian mixed effects model predicting religiosity (composited as a within-participant cluster of the religiosity measures) from:
+
+- the basic covariates
+- dummy code for whether or not parents matched religious affiliation
+- a count of how many parents are nonreligious
+
+This last bit is nice because I can set that at zero to see model predicted effect of mixed-faith parents when both are religious in some way. BOOM. 
+
+
+
+
+
+```{r baylor wave 1 model run, echo=F, include=F, cache = T}
 # checked with random slopes. checked with interaction with NONE papernts
 # this model was best. interaction didn't add much, slopes didn't vary
 
@@ -218,26 +268,70 @@ diff.p.ni <- data.frame(extract.samples(lin.m2.ni))
 
 ```
 
-```{r binary model1, echo=F, include=F, cache = T}
-# checked models with and without interaction, better without
-rentals.bin2 <- map2stan(
-  alist(
-    atheist ~ dbinom(1, p),
-    logit(p) <- a + b_mom*motherNone + b_dad*fatherNone +
+I checked a bunch of different model specifications (fixed and random slopes, with and without interactions), and the best was random intercepts, but fixed effect on religiosity measures. No interaction with number of nonreligious parents. But all the models were really consistent. There was nice robustness to model perturbations.
+
+Code for the linear model...
+
+```{r baylor wave 1 show model 1, echo=T, eval=F}
+
+relScore ~ dnorm(mu, sigma),
+
+mu <- a_measure[measure] + b_diff*parentDiffC +
+      b_nones*parentNonesC  +
       b_fem*femC +
       b_age*ageZ +
       b_educ*educZ +
       b_inc*incomeZ,
-    c(a, b_mom, b_dad, b_fem, b_age, b_educ, b_inc) ~ dnorm(0,1)
-  ), data=parent, iter=24000, 
-  warmup=2000, WAIC = F, chains=1, cores = 1,
+    
+c(a, b_diff, b_nones, b_fem, b_age, b_educ, b_inc) ~ dnorm(0,1),
+a_measure[measure] ~ dnorm(0,1),
+sigma ~ dcauchy(0,1)
+```
+
+
+```{r baylor binary model1, echo=F, include=F, cache = T}
+# checked models with and without interaction, better without
+diff.bin.ni <- map2stan(
+  alist(
+    atheist ~ dbinom(1, p),
+    logit(p) <- a + b_diff*parentDiffC + b_nones*parentNonesC  +
+      b_fem*femC +
+      b_age*ageZ +
+      b_educ*educZ +
+      b_inc*incomeZ,
+    c(a, b_diff, b_nones,  b_fem, b_age, b_educ, b_inc) ~ dnorm(0,1)
+  ), data=parent.l, iter=14000, 
+  warmup=2000, WAIC = T, chains=2, cores = 2,
   control=list(adapt_delta=0.85)
 )
-rent.p <- data.frame(extract.samples(rentals.bin2))
+
+diff.bin.ni.p <- data.frame(extract.samples(diff.bin.ni))
+diff.bin.ni.p <- diff.bin.ni.p %>%
+  mutate(odds = exp(b_diff))
+```
+
+I did the same robustness monkeying around for a binary model predicting atheism.
+
+Binary model...
+
+```{r show baylor binary, echo=T, eval=F}
+
+atheist ~ dbinom(1, p),
+logit(p) <- a + b_diff*parentDiffC + b_nones*parentNonesC  +
+      b_fem*femC +
+      b_age*ageZ +
+      b_educ*educZ +
+      b_inc*incomeZ,
+    
+c(a, b_diff, b_nones,  b_fem, b_age, b_educ, b_inc) ~ dnorm(0,1)
+  
 
 ```
 
-```{r christian only models, echo=F, include = F, cache = T}
+
+## Results
+
+```{r baylor christian only models, echo=F, include = F, cache = T}
 
 parentl.lx <- parent.l %>%
   filter(fatherRel == 1 | fatherRel ==2,
@@ -277,9 +371,19 @@ xian.bin <- map2stan(
 )
 
 xian.bin.p <- data.frame(extract.samples(xian.bin))
+xian.bin.p <- xian.bin.p %>%
+  mutate(same = a %>% logistic(),
+         diff = (a + b_diff) %>% logistic(),
+         odds = exp(b_diff))
 ```
+
+
+Results were super consistent across models. In the overall sample, kids of mixed-faith parents were reliably less religious on the composite, $\beta$ = `r printB(diff.p.ni$b_diff)`, $Pr(\beta < 0 | data)$ `r bigger(0, diff.p.ni$b_diff)`. On the overall binary model, kids of mixed faith parents were more likely to be atheists, $Odds Ratio$ = `r printB(diff.bin.ni.p$odds)`, $Pr(OR > 1 | data)$ = `r bigger(diff.bin.ni.p$odds, 1)`.
+
+Finally, as the STRONGEST possible test, I did both of those models, but isolating only the participants for which BOTH parents were Christian. Now it's really just looking at Protestant/Catholic splits. Here again, kids of mixed-faith-but-still-both-Christian parents were reliably less religious on the composite, $\beta$ = `r printB(xian.m.p$b_diff)`, $Pr(\beta < 0 | data)$ `r bigger(0, xian.m.p$b_diff)`. On the binary model, it predicts an atheism probability of `r printB(xian.bin.p$same)` for kids of same-faith parents, but `r printB(xian.bin.p$diff)` for kids of mixed-faith Christian parents, $Pr(atheism | mixed > atheism | same)$ = `r bigger(xian.bin.p$diff, xian.bin.p$same)`. The odds of atheism increase by a factor of `r printB(xian.bin.p$odds)` for kids of mixed-faith Christian parents. That's pretty nifty...kids get consistent cues to believe in a Christian God. But if the parents are mixed in their brand of Christianity, the odds of hardline atheism go up like 65%.
  
- 
+# Faith Matters Survey
+
  
 ```{r faith matters data, echo=F}
 
@@ -340,6 +444,47 @@ fms.l <- fms %>%
   mutate(measure = factor(measure)) %>%
   data.frame
 ```
+ 
+Next up is the 2006 Faith Matters Survey ([LINK HERE](https://thearda.com/Archive/Files/Descriptions/FTHMATT.asp)). After some wrangling and tidying, there are `r nrow(fms)` USAmericans interviewed by phone.
+
+## Measures
+
+### Outcome
+
+Again, using a composite religion outcome of God, prayer, and attendance. The God measure was less conducive to looking at atheism classification.
+
+### Mixed Faith
+
+This one was a bit coarser than Baylor. It just asked "How about your family growing up? Did both your parents have the same religious preference as each other?"
+
+### Covariates
+
+The usual suspects.
+
+- age
+- gender
+- education
+- income
+
+## The Model
+
+Again I tinkered with a bunch of variants and settled on a random intercept model (clustered at participant level for religion measures). It was robust to tweaks though. Here she is:
+
+```{r show ri model fms, echo=T, eval=F}
+
+score ~ dnorm(mu, sigma),
+    
+mu <- a_measure[measure] + b_diff*parentDiffC   +
+      b_fem*femC +
+      b_age*ageZ +
+      b_educ*educZ +
+      b_inc*incomeZ,
+    
+c(a, b_diff, b_fem, b_age, b_educ, b_inc) ~ dnorm(0,1),
+a_measure[measure] ~ dnorm(0,1),
+sigma ~ dcauchy(0,1)
+
+```
 
 
 ```{r fms random intercept model, echo=F, include=F, cache = T}
@@ -363,6 +508,7 @@ fms.m <- map2stan(
 
 fms.p <- data.frame(extract.samples(fms.m))
 ```
+
 
 ```{r fms random slopes model, echo=F, include = F, cache = T}
 
@@ -388,24 +534,314 @@ fms.mr.p <- data.frame(extract.samples(fms.mr))
 
 ```
 
+## Results
 
-```{r combine posterior plot, echo=F, fig.width = 6, fig.height = 6, fig.caption="Mixed faith parents predicts reduced religiosity in both the Baylor Religion Survey and Faith Matters Survey. Posterior densities in the standardized beta, curve height depicts estimate credibility. Bars contain most credible estimate (posterior mode), 66% highest density interval, and 95% highest density interval."}
+As with the Baylor survey, kids of mixed-faith parents were less religious than kids of same-faith parents, $\beta$ = `r printB(fms.p$b_diff)`, $Pr(\beta < 0 | data)$ `r bigger(0, fms.p$b_diff)`.
+
+# International Social Science Survey, 1998
+
+
+```{r issp data, echo = F}
+
+issp_f <- read.csv("issp-98.csv")
+
+
+issp <- issp_f %>%
+  select(momRel = MOMREL, # 90+ are NA
+         dadRel = DADREL, # 90+ are NA
+         god = BELFGOD1, # 1- don't, 6- sure, 8-DK, 9 NA
+         pray = PRAY, # 1-nver to 11-lots, 98-DN, 99-NA
+         attend = ATTEND, # 1-weekly+, 6-never, 8-DK, 9=NA
+         age = AGE,
+         gender = I_SEX, #1-m, 2-F,
+         income = INCOME,
+         educ = DEGREE, #99 NA,
+         country = COUNTRY
+         ) %>%
+  mutate(momRel = na_if(momRel, 98),
+         momRel = na_if(momRel, 99),
+         dadRel = na_if(dadRel, 98),
+         dadRel = na_if(dadRel, 99),
+         god = na_if(god, 8),
+         god = na_if(god, 9),
+         atheist = ifelse(god == 1, 1, 0),
+         pray = na_if(pray, 98),
+         pray = na_if(pray, 99),
+         attend = na_if(attend, 8),
+         attend = na_if(attend, 0),
+         attend = 7-attend,
+         female = ifelse(gender == 2, 1, 0),
+         educ = na_if(educ, 99),
+         godZ = scale(god)[,],
+         prayZ = scale(pray)[,],
+         attendZ = scale(attend)[,],
+         femC = scale(female, center = T, scale = F)[,],
+         educZ = scale(educ)[,],
+         incomeZ = scale(income)[,],
+         ageZ = scale(age)[,],
+         parentSame = ifelse(momRel == dadRel, 1, 0),
+         parentDiff = ifelse(parentSame == 0, 1, 0),
+         parentDiffC = scale(parentDiff, scale=F, center=T)[,],
+         country = factor(country),
+         religiosity = (godZ + prayZ + attendZ)/3,
+         religZ = scale(religiosity)[,],
+         momNone = ifelse(momRel == 90, 1, 0),
+         dadNone = ifelse(dadRel == 90, 1, 0),
+         parentsNone = momNone + dadNone) %>%
+  drop_na() %>%
+  data.frame
+
+
+relPars <- issp %>% 
+  filter(parentsNone == 0) %>%
+  drop_na() %>%
+  data.frame
+
+```
+
+
+
+Finally, there's the 1998 ISSP ([LINK HERE](https://thearda.com/Archive/Files/Descriptions/ISSPRG.aspp)). After wrangling, there are `r nrow(relPars)` participants from `r nrow(table(relPars$country))` countries. Mostly Western. NOTE: For these analyses I'm only keeping participants where BOTH parents are religious. Nothing is driven by some sneaky heathen parents.
+
+## Measures
+
+### Outcome
+
+A composite religion outcome of God, prayer, and attendance. I averaged them, rather than doing the mixed effects clustering. Because the data was huge and my laptop isn't up to the huge Bayesian 3 level modeling.
+
+### Mixed Faith
+
+Parent religious affiliation had lots of options, [LINK](https://thearda.com/Archive/Files/Search/ISSPRG_AN.asp?File=&Filename=ISSPRG&SearchTerms=parents+mother+father&Type=2). I coded a dummy variable for if they're the same.
+
+### Covariates
+
+The usual suspects.
+
+- age
+- gender
+- education
+- income
+
+Also, for the multilevel model, clustered by Country.
+
+## The Model
+
+Again, I tried a lot of slight variations for robustness. Best option ended up being random intercepts and slopes of mixed-faith parenting by country. I modeled covariates as fixed.
+
+Thar she blows:
+
+
+```{r issp model, echo = F, include = F, cache = T}
+
+# random slopes and intercepts  ----
+issp.rsri <- map2stan(
+  alist(
+    religZ ~ dnorm(mu, sigma),
+    mu <- a_country[country] + b_diff_country[country]*parentDiffC + 
+      b_fem*femC +
+      b_age*ageZ +
+      b_educ*educZ +
+      b_inc*incomeZ,
+    c(a, b_diff, b_fem, b_age, b_educ, b_inc) ~ dnorm(0,1),
+    c(a_country, b_diff_country)[country] ~ dmvnorm2(c(a, b_diff),sigma_country,Rho_country),
+    sigma_country ~ dcauchy(0,1),
+    sigma ~ dcauchy(0,1),
+    Rho_country ~ dlkjcorr(2)
+  ), data=relPars, iter=24000, 
+  warmup=2000, WAIC = F, chains=1, cores = 1,
+  control=list(adapt_delta=0.9)
+)
+
+issp.post <- data.frame(extract.samples(issp.rsri))
+
+
+```
+
+```{r show issp model, echo = T, eval=F}
+
+religZ ~ dnorm(mu, sigma),
+
+mu <- a_country[country] + b_diff_country[country]*parentDiffC + 
+      b_fem*femC +
+      b_age*ageZ +
+      b_educ*educZ +
+      b_inc*incomeZ,
+
+c(a, b_diff, b_fem, b_age, b_educ, b_inc) ~ dnorm(0,1),
+c(a_country, b_diff_country)[country] ~ dmvnorm2(c(a, b_diff),sigma_country,Rho_country),
+sigma_country ~ dcauchy(0,1),
+sigma ~ dcauchy(0,1),
+Rho_country ~ dlkjcorr(2)
+
+
+```
+
+## Results
+
+A lot more to unpack here. But for the overall, once you account for country-level clustering and whatnot, there's an overall pattern whereby kids of mixed-faith (but again **both religious**) parents are less religious than kids of same-faith parents, $\beta$ = `r printB(issp.post$b_diff)`, $Pr(\beta < 0 | data)$ `r bigger(0, issp.post$b_diff)`.
+
+But this difference itself varies a lot across countries! And, perhaps interestingly, the observed negative association between mixed-faith parents and religiosity was magnified in more strongly in more religious countries, as evidenced by a negative slope-intercept association, `r printB(issp.post$Rho_country.2)`, $Pr(\beta_{slope/intercept} < 0)$ = `r bigger(0, issp.post$Rho_country.2)`. But that's a bit tenuous and unexpected, and we're only dealing with ~30 countries with restricted range. Nothing to write home about.  
+
+Overall trend is there, but there's also a lot of between-country heterogeneity that is itself related to baseline levels of religiosity. Kids of mixed-faith parents are less religious, especially in countries that are more generally religious. Check out the posterior densities for the $\beta$ by country!
+
+```{r issp beta plot, echo = F, fig.width = 6, fig.height = 8, fig.cap="Across 30 countries, children of interfaith religious parents tend to be less religious than children of same-faith parents. Posterior densities, point estimate (posterior mode), and 95% highest density interval for each country. Height of curve on y-axis represents posterior density, or estimate credibility."}
+
+
+issp.betas <- issp.post %>%
+  select(Overall = b_diff,
+         Australia = b_diff_country.1,
+         WGermany = b_diff_country.2,
+         EGermany = b_diff_country.3,
+         GrBr = b_diff_country.4,
+         NIreland = b_diff_country.5,
+         USA = b_diff_country.6,
+         Austria = b_diff_country.7,
+         Hungary = b_diff_country.8,
+         Italy = b_diff_country.9,
+         Ireland = b_diff_country.10,
+         Netherlands = b_diff_country.11,
+         Norway = b_diff_country.12,
+         Sweden = b_diff_country.13,
+         Czech = b_diff_country.14,
+         Slovenia = b_diff_country.15,
+         Poland = b_diff_country.16,
+         Russia = b_diff_country.17, # country 18
+         NZealand = b_diff_country.18, #country 19
+         Canada = b_diff_country.19, # country 20
+         Phillipines = b_diff_country.20, # country 21
+         Japan = b_diff_country.21, # country 24
+         Spain = b_diff_country.22, # country 25
+         Latvia = b_diff_country.23, # country 26
+         Slovak = b_diff_country.24, # country 27
+         France = b_diff_country.25, # country 28
+         Cyprus = b_diff_country.26, # country 29
+         Portugal = b_diff_country.27, # country 30
+         Chile = b_diff_country.28, # country 31
+         Denmark = b_diff_country.29, # country 32
+         Switzerland = b_diff_country.30 # country 33
+  ) %>%
+  pivot_longer(Overall:Switzerland, names_to = "Country", values_to = "Beta") %>%
+  mutate(Country = factor(Country)) %>%
+  data.frame
+
+
+beta.plot <- issp.betas %>%
+  filter(Beta > -.75 & Beta < .25) %>%
+  mutate(Country = factor(Country, levels = c("Overall", 
+                                              "Russia", 
+                                              "Austria", 
+                                              "Cyprus", 
+                                              "Chile", 
+                                              "WGermany", 
+                                              "Japan",
+                                              "EGermany",
+                                              "USA",
+                                              "Slovak",
+                                              "Denmark",
+                                              "Ireland",
+                                              "Slovenia",
+                                              "Canada",
+                                              "Switzerland",
+                                              "Hungary",
+                                              "Australia",
+                                              "Portugal",
+                                              "NZealand",
+                                              "Poland",
+                                              "Netherlands",
+                                              "Italy",
+                                              "Norway",
+                                              "France",
+                                              "Czech",
+                                              "Sweden",
+                                              "Spain",
+                                              "NIreland",
+                                              "Phillipines",
+                                              "GrBr",
+                                              "Latvia"
+                                              
+                                              ),
+                          labels = c("Overall", 
+                                              "Russia", 
+                                              "Austria", 
+                                              "Cyprus", 
+                                              "Chile", 
+                                              "West Germany", 
+                                              "Japan",
+                                              "East Germany",
+                                              "USA",
+                                              "Slovak Republic",
+                                              "Denmark",
+                                              "Ireland",
+                                              "Slovenia",
+                                              "Canada",
+                                              "Switzerland",
+                                              "Hungary",
+                                              "Australia",
+                                              "Portugal",
+                                              "New Zealand",
+                                              "Poland",
+                                              "Netherlands",
+                                              "Italy",
+                                              "Norway",
+                                              "France",
+                                              "Czech Republic",
+                                              "Sweden",
+                                              "Spain",
+                                              "Northern Ireland",
+                                              "Phillipines",
+                                              "Great Britain",
+                                              "Latvia")),
+         overall = ifelse(Country == "Overall", "yes", "no"),
+         overall = factor(overall))
+
+ggplot(beta.plot, aes(x = Beta, y = Country, fill = overall, alpha = overall)) +
+  geom_vline(xintercept= 0) +
+  scale_fill_manual(values = c(col2, col1)) +
+  scale_alpha_manual(values = c(.4, 1)) +
+  labs(x="Interfaith Parents\nBeta", y="Country") +
+  geom_halfeyeh(adjust = 1.8, scale = 2, .width = c(0,.95)) +
+  theme_bw() +
+  theme(text = element_text(family=fontfam),
+        legend.position = "none",
+        axis.text = element_text(size = 16, color = text),
+        axis.title = element_text(size = 20, color = text),
+        axis.text.x = element_text(),
+        panel.grid.major.x = element_blank() ,
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank(),
+        panel.grid.major.y = element_line(color=grids),
+        panel.background = element_rect(fill = backgrounds),
+        plot.background = element_rect(color = border, fill = backgrounds))  
+  
+         
+```
+
+# Overall
+
+Across 2 US samples and one international one, we've got consistent evidence that kids of mixed-faith parents are less religious. This holds even when both parents are religious. heck, in the Baylor US sample, mixed-faith-but-both-Christian parents were more likely to have full-on hardline atheist kids. 
+
+Here's the posterior densities for the overall associaitons in each sample.
+
+Nifty, eh?
+
+```{r combine posterior plot, echo=F, fig.width = 6, fig.height = 6, fig.cap="Mixed faith parents predicts reduced religiosity in the Baylor Religion Survey, the Faith Matters Survey, and the International Social Survey Program's 1998 Religion II survey. Posterior densities in the standardized beta, curve height depicts estimate credibility. Bars contain most credible estimate (posterior mode), 66% highest density interval, and 95% highest density interval."}
 
 Baylor <- diff.p.ni$b_diff
 Faith <- fms.p$b_diff
+ISSP <- issp.post$b_diff
 
-combined <- data.frame(Baylor, Faith)
+combined <- data.frame(Baylor, Faith, ISSP)
 
 combined.l <- combined %>%
-  pivot_longer(Baylor:Faith, names_to = "Sample", values_to = "beta") %>%
-  mutate(Sample = factor(Sample, levels = c("Faith", "Baylor"), labels = c("Faith\nMatters\nSurvey", "Baylor\nReligion\nSurvey"))) %>%
+  pivot_longer(Baylor:ISSP, names_to = "Sample", values_to = "beta") %>%
+  mutate(Sample = factor(Sample, levels = c("Faith", "Baylor", "ISSP"), labels = c("Faith\nMatters\nSurvey", "Baylor\nReligion\nSurvey", "ISSP"))) %>%
   data.frame
 
 
 ggplot(combined.l, aes(x=beta, y=Sample, fill = Sample)) +
   geom_vline(xintercept = 0) +
   geom_halfeyeh(adjust = 1.8, scale = 1.4, alpha = .6) +
-  scale_fill_manual(values = c(col1, col2)) +
+  scale_fill_manual(values = c(col1, col2, col3)) +
   labs(x="Mixed Faith Parents\nBeta", y = NULL) +
   theme_bw() +
   theme(text = element_text(family=fontfam),
@@ -424,3 +860,7 @@ ggplot(combined.l, aes(x=beta, y=Sample, fill = Sample)) +
 
 
 ```
+
+\pagebreak
+
+# References
